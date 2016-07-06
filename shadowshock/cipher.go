@@ -1,15 +1,16 @@
 package shadowshock
 
 import (
-	"io"
 	"crypto/md5"
 	"crypto/cipher"
+	"io"
+	"crypto/rand"
 )
 
 
 type (
 	Cipher struct{
-		iv []byte
+
 		blockSize int
 		block cipher.Block
 		enc,dec cipher.Stream
@@ -17,68 +18,97 @@ type (
 	Pipe struct{
 		io.ReadWriter
 		encPipe io.ReadWriter
-		buf []byte
-		getCipher func()*Cipher
+		// wbuf is nil if first write to
+		// rbuf is nil if first recive
+		wbuf,rbuf []byte
+
+		cip *Cipher
 	}
 	UnsupportError string
 )
 func (name UnsupportError) Error() string{
-	return "Unsupport method: " + name
+	return "Unsupport method: " + string(name)
 }
-func (c *Cipher)getIv(b []byte) error{
-	if c.iv == nil {
-		c.iv = make([]byte,c.blockSize)
-		if _,err := rand.Read(c.iv); err != nil {
-			return err
-		}
-	}
-	copy(b,c.iv)
-	return nil
+func (c *Cipher)initEnc(iv []byte) {
+	c.enc = cipher.NewCFBEncrypter(c.block,iv)
 }
-func (t *Cipher)Enc(dst,src []byte) error{
+func (c *Cipher)initDec(iv []byte){
+	c.dec = cipher.NewCFBDecrypter(c.block,iv)
+
 }
-func (t *Cipher)Dec(dst,src []byte)error{
+func (c *Cipher)Enc(dst,src []byte){
+	c.enc.XORKeyStream(dst,src)
+}
+func (c *Cipher)Dec(dst,src []byte){
+	c.dec.XORKeyStream(dst,src)
 }
 // key for cipher.Block
-// encryptAdaptor for encrypt channel
-func NewPipe(encMethod string,key []byte,pipe io.ReadWriter) (*Pipe,error){
-	var pp Pipe
+// pipe for encrypt channel
+func NewPipe(encMethod string,key []byte,pipe io.ReadWriter) (pp *Pipe,err error){
+	var pip Pipe
 	var cip Cipher
-	pp.encPipe=pipe
+	pip.encPipe=pipe
 	cinfo,ok := encryptMethod[encMethod]
 	if !ok {
 		return nil,UnsupportError(encMethod)
 	}
 	cip.blockSize=cinfo.blockLen
-	pp.getCipher=func()(*Cipher,error){
-		cip.block,err:=cinfo.createBlock(cinfo.keyLen,key)
-		if err != nil {
-			return nil,err
-		}
-		return &cip,nil
+	cip.block,err=cinfo.createBlock(cinfo.keyLen,key)
+	if err != nil {
+		return
 	}
-	return &pp,nil
+	pip.cip=&cip
+	pp = &pip
+	return 
 }
 // Init or Apply a IV before use Cipher
 func (p *Pipe)Write(plaintext []byte) (int, error){
 	// encode plaintext and write to encPipe
-	if p.buf == nil {
-		cip,err := p.getCipher()
-		if err != nil {
+	var eob int
+	if p.wbuf == nil {
+		cip := p.cip
+		eob = cip.blockSize+len(plaintext)
+		p.wbuf = make([]byte,eob)
+		// create a IV
+		if _,err := rand.Read(p.wbuf[:cip.blockSize]); err != nil {
 			return 0,err
 		}
-		p.buf = make([]byte,cip.blockSize+len(plaintext))
-		if err = p.getIv(b) ; err != nil {
-			return 0,err
+		p.cip.initEnc(p.wbuf[:cip.blockSize])
+		p.cip.Enc(p.wbuf[cip.blockSize:],plaintext)
+	} else {
+
+		eob = len(plaintext)
+		if eob >len(p.wbuf) {
+			p.wbuf = make([]byte,eob)
 		}
+		p.cip.Enc(p.wbuf,plaintext)
 	}
-	if err=c.Enc(p.buf[cip.blockSize:],plaintext);err != nil {
-		return 0,err
-	}
-	return p.encPipe.Write(c.buf)
+	return p.encPipe.Write(p.wbuf[:eob])
 }
 func (p *Pipe)Read(plaintext []byte) (int,error){
-	// read from encryptAdapotr and decode
+	// read from encPipe and decode
+	eob := len(plaintext)
+	if p.rbuf == nil {
+		p.rbuf = make([]byte, p.cip.blockSize)
+		// read IV from sender
+		if _,err := p.encPipe.Read(p.rbuf);err != nil{
+			return 0,err
+		}
+		p.cip.initDec(p.rbuf)
+	}
+	if eob > len(p.rbuf) {
+		p.rbuf = make([]byte,eob)
+	}
+	if n,err := p.encPipe.Read(p.rbuf[:eob]); err != nil {
+		if err == io.EOF {
+			eob = n
+		} else {
+			return 0,err
+		}
+	}
+	p.cip.Dec(plaintext,p.rbuf[:eob])
+	return eob,nil
+	
 }
 func GenKey(rawKey []byte,size int) []byte{
 	h := md5.New()
