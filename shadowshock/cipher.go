@@ -2,18 +2,20 @@ package shadowshock
 
 import (
 	"crypto/md5"
-	"crypto/cipher"
 	"io"
-	"crypto/rand"
+
 )
 
 
 type (
-	Cipher struct{
-
-		blockSize int
-		block cipher.Block
-		enc,dec cipher.Stream
+	Cipher interface{
+		// return IV for sending to remote host later
+		InitEnc()([]byte,error)
+		// read IV from connection
+		InitDec(io.Reader) error
+		// panic if invoke before first call InitEnc
+		Enc(dst,src []byte)
+		Dec(dst,src []byte)
 	}
 	Pipe struct{
 		io.ReadWriter
@@ -22,79 +24,62 @@ type (
 		// rbuf is nil if first recive
 		wbuf,rbuf []byte
 
-		cip *Cipher
+		cip Cipher
 	}
 	UnsupportError string
 )
 func (name UnsupportError) Error() string{
 	return "Unsupport method: " + string(name)
 }
-func (c *Cipher)initEnc(iv []byte) {
-	c.enc = cipher.NewCFBEncrypter(c.block,iv)
-}
-func (c *Cipher)initDec(iv []byte){
-	c.dec = cipher.NewCFBDecrypter(c.block,iv)
-
-}
-func (c *Cipher)Enc(dst,src []byte){
-	c.enc.XORKeyStream(dst,src)
-}
-func (c *Cipher)Dec(dst,src []byte){
-	c.dec.XORKeyStream(dst,src)
-}
 // key for cipher.Block
 // pipe for encrypt channel
 func NewPipe(encMethod string,key []byte,pipe io.ReadWriter) (pp *Pipe,err error){
 	var pip Pipe
-	var cip Cipher
+
 	pip.encPipe=pipe
 	cinfo,ok := encryptMethod[encMethod]
 	if !ok {
 		return nil,UnsupportError(encMethod)
 	}
-	cip.blockSize=cinfo.blockLen
-	cip.block,err=cinfo.createBlock(cinfo.keyLen,key)
+
+	pip.cip,err=cinfo.newCipher(cinfo.ivLen,cinfo.keyLen,key)
 	if err != nil {
 		return
 	}
-	pip.cip=&cip
+
 	pp = &pip
 	return 
 }
 // Init or Apply a IV before use Cipher
 func (p *Pipe)Write(plaintext []byte) (int, error){
 	// encode plaintext and write to encPipe
-	var eob int
+	eob := len(plaintext)
 	if p.wbuf == nil {
-		cip := p.cip
-		eob = cip.blockSize+len(plaintext)
-		p.wbuf = make([]byte,eob)
-		// create a IV
-		if _,err := rand.Read(p.wbuf[:cip.blockSize]); err != nil {
+		iv,err:=p.cip.InitEnc()
+		if err != nil {
 			return 0,err
 		}
-		p.cip.initEnc(p.wbuf[:cip.blockSize])
-		p.cip.Enc(p.wbuf[cip.blockSize:],plaintext)
-	} else {
-
-		eob = len(plaintext)
-		if eob >len(p.wbuf) {
-			p.wbuf = make([]byte,eob)
+		_,err=p.encPipe.Write(iv)
+		if err != nil {
+			return 0,err
 		}
-		p.cip.Enc(p.wbuf,plaintext)
+		p.wbuf=make([]byte,eob)
 	}
+
+	if eob >len(p.wbuf) {
+		p.wbuf = make([]byte,eob)
+	}
+	p.cip.Enc(p.wbuf,plaintext)
 	return p.encPipe.Write(p.wbuf[:eob])
 }
 func (p *Pipe)Read(plaintext []byte) (int,error){
 	// read from encPipe and decode
 	eob := len(plaintext)
 	if p.rbuf == nil {
-		p.rbuf = make([]byte, p.cip.blockSize)
-		// read IV from sender
-		if _,err := p.encPipe.Read(p.rbuf);err != nil{
+		if err := p.cip.InitDec(p.encPipe); err != nil {
 			return 0,err
 		}
-		p.cip.initDec(p.rbuf)
+		p.rbuf=make([]byte,eob)
 	}
 	if eob > len(p.rbuf) {
 		p.rbuf = make([]byte,eob)
@@ -108,7 +93,6 @@ func (p *Pipe)Read(plaintext []byte) (int,error){
 	}
 	p.cip.Dec(plaintext,p.rbuf[:eob])
 	return eob,nil
-	
 }
 func GenKey(rawKey []byte,size int) []byte{
 	h := md5.New()
