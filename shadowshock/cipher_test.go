@@ -68,28 +68,56 @@ func cipher_test(method string, t *testing.T){
 	key := []byte("windows")
 
 	src,dst := BiPipe()
-	csrc,err := ss.NewPipe(method,key,src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cdst,err := ss.NewPipe(method,key,dst)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var werr error
+	cherr := make(chan error)
+	done := make(chan int)
+	go func(){done <- 0}()
 	go func(){
-		tsrc:=[]byte(text)
-		_,werr=csrc.Write(tsrc)
-	}()
-	tdst := make([]byte, len(text))
-	_,err=cdst.Read(tdst)
-	if err == nil && werr == nil {
-		if isSame(tdst,[]byte(text)) {
+		csrc,err := ss.NewPipe(method,key,src)
+		if err != nil {
+			cherr <- err
+			i := <-done
+			i ++
+			done <- i
 			return
 		}
-		t.Fatalf("%s cipher not same",method)
+		tsrc:=[]byte(text)
+		_,err=csrc.Write(tsrc)
+		if err != nil {cherr <- err}
+		i := <-done
+		i ++
+		done <- i
+	}()
+	tdst := make([]byte, len(text))
+	go func(){
+		cdst,err := ss.NewPipe(method,key,dst)
+		if err != nil {
+			cherr <- err
+			i := <-done
+			i ++
+			done <- i
+			return
+		}
+		_,err =cdst.Read(tdst)
+		if err != nil {
+			cherr <- err
+		}
+		i := <-done
+		i ++
+		done <- i
+	}()
+	select {
+	case i:= <-done:
+		if i==2 {
+			if isSame(tdst,[]byte(text)) {
+				return
+			}
+			t.Fatalf("%s cipher not same",method)
+			return
+		}
+		go func() {done <- i}()
+	case err := <-cherr:
+		t.Error(err)
 	}
-	t.Fatal(err,werr)
 }
 
 const (

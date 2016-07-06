@@ -10,92 +10,24 @@ import (
 
 
 type (
-	Encrypt interface{
-		Enc(dst,src []byte)
-	}
-	Decrypt interface{
-		Dec(dst,src []byte)
-	}
-	encrypt struct{
-		stream cipher.Stream
-	}
-	decrypt struct{
-		stream cipher.Stream
-	}
 	Cipher struct{
-		Encrypt
-		Decrypt
 		ivLen int
 		enc,dec func([]byte) (cipher.Stream,error)
 	}
 	Pipe struct{
-		io.ReadWriter
-		encPipe io.ReadWriter
-		// wbuf is nil if first write to
-		// rbuf is nil if first recive
-		wbuf,rbuf []byte
-
+		r *cipher.StreamReader
+		w *cipher.StreamWriter
 		cip *Cipher
 	}
 	UnsupportError string
 )
-func (e *encrypt)Enc(dst,src []byte){
-	e.stream.XORKeyStream(dst,src)
-}
-func (c *decrypt)Dec(dst,src []byte){
-	c.stream.XORKeyStream(dst,src)
-}
 func (name UnsupportError) Error() string{
 	return "Unsupport method: " + string(name)
 }
-func NewEncrypt(stream cipher.Stream) Encrypt{
-	return &encrypt{stream}
-}
-func NewDecrypt(stream cipher.Stream) Decrypt{
-	return &decrypt{stream}
-}
 
-func (c *Cipher)InitEnc()(iv []byte,err error ){
-	var stream cipher.Stream
-	iv = make([]byte,c.ivLen)
-	_,err = rand.Read(iv)
-	if err != nil {
-		return
-	}
-	stream,err = c.enc(iv)
-	if err != nil {
-		return
-	}
-	c.Encrypt=NewEncrypt(stream)
-
-	return
-}
-func (c *Cipher)InitDec(r io.Reader)error{
-	iv :=make([]byte,c.ivLen)
-	if num,err:=r.Read(iv); err != nil {
-		if err != io.EOF {
-			return err
-		}
-		if num < c.ivLen {
-			return err
-		}
-	}
-	stream,err := c.dec(iv)
-	if err != nil {
-		return err
-	}
-	c.Decrypt=NewDecrypt(stream)
-	return nil
-}
-
-
-
-// key for cipher.Block
-// pipe for encrypt channel
-func NewPipe(encMethod string,key []byte,pipe io.ReadWriter) (pp *Pipe,err error){
+func NewPipe(encMethod string,key []byte,pipe io.ReadWriter) (*Pipe,error){
 	var pip Pipe
-
-	pip.encPipe=pipe
+	var err error
 	cinfo,ok := encryptMethod[encMethod]
 	if !ok {
 		return nil,UnsupportError(encMethod)
@@ -103,55 +35,47 @@ func NewPipe(encMethod string,key []byte,pipe io.ReadWriter) (pp *Pipe,err error
 	rawKey := GenKey(key,cinfo.keyLen)
 	pip.cip,err=cinfo.newCipher(cinfo.ivLen,rawKey)
 	if err != nil {
-		return
+		return nil,err
 	}
+	pip.r=&cipher.StreamReader{S:nil,R:pipe}
+	pip.w=&cipher.StreamWriter{S:nil,W:pipe}
+	return &pip,nil
 
-	pp = &pip
-	return 
 }
 // Init or Apply a IV before use Cipher
 func (p *Pipe)Write(plaintext []byte) (int, error){
-	// encode plaintext and write to encPipe
-	eob := len(plaintext)
-	if p.wbuf == nil {
-		iv,err:=p.cip.InitEnc()
+	if p.w.S == nil {
+		var err error
+		iv := make([]byte,p.cip.ivLen)
+		_,err = rand.Read(iv)
 		if err != nil {
 			return 0,err
 		}
-		_,err=p.encPipe.Write(iv)
+		p.w.S,err=p.cip.enc(iv)
 		if err != nil {
 			return 0,err
 		}
-		p.wbuf=make([]byte,eob)
+		_,err=p.w.W.Write(iv)
+		if err != nil {
+			return 0,err
+		}
 	}
-
-	if eob >len(p.wbuf) {
-		p.wbuf = make([]byte,eob)
-	}
-	p.cip.Enc(p.wbuf,plaintext)
-	return p.encPipe.Write(p.wbuf[:eob])
+	return p.w.Write(plaintext)
 }
 func (p *Pipe)Read(plaintext []byte) (int,error){
-	// read from encPipe and decode
-	eob := len(plaintext)
-	if p.rbuf == nil {
-		if err := p.cip.InitDec(p.encPipe); err != nil {
+	var err error
+	if p.r.S == nil {
+
+		iv := make([]byte,p.cip.ivLen)
+		if _,err = p.r.R.Read(iv); err != nil {
 			return 0,err
 		}
-		p.rbuf=make([]byte,eob)
-	}
-	if eob > len(p.rbuf) {
-		p.rbuf = make([]byte,eob)
-	}
-	if n,err := p.encPipe.Read(p.rbuf[:eob]); err != nil {
-		if err == io.EOF {
-			eob = n
-		} else {
+		p.r.S,err=p.cip.dec(iv)
+		if err != nil {
 			return 0,err
 		}
 	}
-	p.cip.Dec(plaintext,p.rbuf[:eob])
-	return eob,nil
+	return p.r.Read(plaintext)
 }
 func GenKey(rawKey []byte,size int) []byte{
 	h := md5.New()
