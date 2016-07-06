@@ -132,9 +132,3 @@ func GenKey(rawKey []byte,size int) []byte{
 	return key[:size]
 }
 
-
-const (
-	AES32 = "aes-256-cfb"
-	AES24 = "aes-192-cfb"
-	AES16 = "aes-128-cfb"
-)

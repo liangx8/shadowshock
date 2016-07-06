@@ -85,5 +85,5 @@ func Test_cipher(t *testing.T){
 
 const (
 	text = "This is a long test what include 中文"
-	method = "aes-256-cfb"
+	method = "des-cfb"
 )
