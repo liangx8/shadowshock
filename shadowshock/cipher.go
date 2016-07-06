@@ -4,18 +4,30 @@ import (
 	"crypto/md5"
 	"io"
 
+	"crypto/cipher"
 )
 
 
 type (
+	Encrypt interface{
+		Enc(dst,src []byte)
+	}
+	Decrypt interface{
+		Dec(dst,src []byte)
+	}
+	encrypt struct{
+		stream cipher.Stream
+	}
+	decrypt struct{
+		stream cipher.Stream
+	}
 	Cipher interface{
+		Encrypt
+		Decrypt
 		// return IV for sending to remote host later
 		InitEnc()([]byte,error)
 		// read IV from connection
 		InitDec(io.Reader) error
-		// panic if invoke before first call InitEnc
-		Enc(dst,src []byte)
-		Dec(dst,src []byte)
 	}
 	Pipe struct{
 		io.ReadWriter
@@ -28,8 +40,20 @@ type (
 	}
 	UnsupportError string
 )
+func (e *encrypt)Enc(dst,src []byte){
+	e.stream.XORKeyStream(dst,src)
+}
+func (c *decrypt)Dec(dst,src []byte){
+	c.stream.XORKeyStream(dst,src)
+}
 func (name UnsupportError) Error() string{
 	return "Unsupport method: " + string(name)
+}
+func NewEncrypt(stream cipher.Stream) Encrypt{
+	return &encrypt{stream}
+}
+func NewDecrypt(stream cipher.Stream) Decrypt{
+	return &decrypt{stream}
 }
 // key for cipher.Block
 // pipe for encrypt channel
@@ -41,8 +65,8 @@ func NewPipe(encMethod string,key []byte,pipe io.ReadWriter) (pp *Pipe,err error
 	if !ok {
 		return nil,UnsupportError(encMethod)
 	}
-
-	pip.cip,err=cinfo.newCipher(cinfo.ivLen,cinfo.keyLen,key)
+	rawKey := GenKey(key,cinfo.keyLen)
+	pip.cip,err=cinfo.newCipher(cinfo.ivLen,rawKey)
 	if err != nil {
 		return
 	}

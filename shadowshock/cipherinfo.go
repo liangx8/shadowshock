@@ -6,7 +6,7 @@ import (
 type (
 	CipherInfo struct{
 		ivLen,keyLen int
-		newCipher func(int,int,[]byte) (Cipher,error)
+		newCipher func(int,[]byte) (Cipher,error)
 	}
 )
 
@@ -15,6 +15,7 @@ var encryptMethod = map[string]CipherInfo{
 	AES24:{aes.BlockSize,24,aesCipher},
 	AES16:{aes.BlockSize,16,aesCipher},
 	DES:{8,8,desCipher},
+	RC4MD5:{16,16,rc4Cipher},
 }
 
 const (
@@ -22,4 +23,5 @@ const (
 	AES24 = "aes-192-cfb"
 	AES16 = "aes-128-cfb"
 	DES   = "des-cfb"
+	RC4MD5 = "rc4-md5"
 )

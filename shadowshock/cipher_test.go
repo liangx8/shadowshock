@@ -54,12 +54,12 @@ func Test_pipe(t *testing.T){
 	t.Fatal("not same")
 
 }
-func Test_cipher_aes(t *testing.T){
+func Test_cipher(t *testing.T){
 	cipher_test("aes-128-cfb",t)
 	cipher_test("aes-192-cfb",t)
 	cipher_test("aes-256-cfb",t)
 	cipher_test("des-cfb",t)
-//	cipher_test("rc4-md5",t)
+	cipher_test("rc4-md5",t)
 }
 
 func cipher_test(method string, t *testing.T){
@@ -85,12 +85,11 @@ func cipher_test(method string, t *testing.T){
 		if isSame(tdst,[]byte(text)) {
 			return
 		}
-		t.Fatal("cipher not same")
+		t.Fatalf("%s cipher not same",method)
 	}
 	t.Fatal(err,werr)
 }
 
 const (
 	text = "This is a long test what include 中文"
-
 )

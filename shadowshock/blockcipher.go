@@ -10,29 +10,29 @@ import (
 
 type (
 	blockcipher struct{
+		Encrypt
+		Decrypt
 		ivLen int
 		block cipher.Block
-		enc,dec cipher.Stream
 	}
 
 )
 
-func newblockcipher(ivLen,keyLen int,key []byte,f func([]byte)(cipher.Block,error))(Cipher,error){
+func newblockcipher(ivLen int,key []byte,f func([]byte)(cipher.Block,error))(Cipher,error){
 	var bc blockcipher
 	var err error
 	bc.ivLen=ivLen
-	rawKey :=GenKey(key,keyLen)
-	bc.block,err=f(rawKey)
+	bc.block,err=f(key)
 	if err != nil {
 		return nil,err
 	}
 	return &bc,nil
 }
-func aesCipher(ivLen,keyLen int,key []byte)(Cipher,error){
-	return newblockcipher(ivLen,keyLen,key,aes.NewCipher)
+func aesCipher(ivLen int,key []byte)(Cipher,error){
+	return newblockcipher(ivLen,key,aes.NewCipher)
 }
-func desCipher(ivLen,keyLen int,key []byte)(Cipher,error){
-	return newblockcipher(ivLen,keyLen,key,des.NewCipher)
+func desCipher(ivLen int,key []byte)(Cipher,error){
+	return newblockcipher(ivLen,key,des.NewCipher)
 }
 
 func (c *blockcipher)InitEnc()(iv []byte,err error ){
@@ -41,7 +41,8 @@ func (c *blockcipher)InitEnc()(iv []byte,err error ){
 	if err != nil {
 		return
 	}
-	c.enc = cipher.NewCFBEncrypter(c.block,iv)
+	c.Encrypt=NewEncrypt(cipher.NewCFBEncrypter(c.block,iv))
+
 	return
 }
 func (c *blockcipher)InitDec(r io.Reader)error{
@@ -54,12 +55,6 @@ func (c *blockcipher)InitDec(r io.Reader)error{
 			return err
 		}
 	}
-	c.dec = cipher.NewCFBDecrypter(c.block,iv)
+	c.Decrypt=NewDecrypt(cipher.NewCFBDecrypter(c.block,iv))
 	return nil
-}
-func (c *blockcipher)Enc(dst,src []byte){
-	c.enc.XORKeyStream(dst,src)
-}
-func (c *blockcipher)Dec(dst,src []byte){
-	c.dec.XORKeyStream(dst,src)
 }
