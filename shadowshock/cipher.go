@@ -1,10 +1,11 @@
 package shadowshock
 
 import (
-	"crypto/md5"
-	"io"
 
+	"io"
 	"crypto/cipher"
+	"crypto/md5"
+	"crypto/rand"
 )
 
 
@@ -21,13 +22,11 @@ type (
 	decrypt struct{
 		stream cipher.Stream
 	}
-	Cipher interface{
+	Cipher struct{
 		Encrypt
 		Decrypt
-		// return IV for sending to remote host later
-		InitEnc()([]byte,error)
-		// read IV from connection
-		InitDec(io.Reader) error
+		ivLen int
+		enc,dec func([]byte) (cipher.Stream,error)
 	}
 	Pipe struct{
 		io.ReadWriter
@@ -36,7 +35,7 @@ type (
 		// rbuf is nil if first recive
 		wbuf,rbuf []byte
 
-		cip Cipher
+		cip *Cipher
 	}
 	UnsupportError string
 )
@@ -55,6 +54,42 @@ func NewEncrypt(stream cipher.Stream) Encrypt{
 func NewDecrypt(stream cipher.Stream) Decrypt{
 	return &decrypt{stream}
 }
+
+func (c *Cipher)InitEnc()(iv []byte,err error ){
+	var stream cipher.Stream
+	iv = make([]byte,c.ivLen)
+	_,err = rand.Read(iv)
+	if err != nil {
+		return
+	}
+	stream,err = c.enc(iv)
+	if err != nil {
+		return
+	}
+	c.Encrypt=NewEncrypt(stream)
+
+	return
+}
+func (c *Cipher)InitDec(r io.Reader)error{
+	iv :=make([]byte,c.ivLen)
+	if num,err:=r.Read(iv); err != nil {
+		if err != io.EOF {
+			return err
+		}
+		if num < c.ivLen {
+			return err
+		}
+	}
+	stream,err := c.dec(iv)
+	if err != nil {
+		return err
+	}
+	c.Decrypt=NewDecrypt(stream)
+	return nil
+}
+
+
+
 // key for cipher.Block
 // pipe for encrypt channel
 func NewPipe(encMethod string,key []byte,pipe io.ReadWriter) (pp *Pipe,err error){

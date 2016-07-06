@@ -60,6 +60,8 @@ func Test_cipher(t *testing.T){
 	cipher_test("aes-256-cfb",t)
 	cipher_test("des-cfb",t)
 	cipher_test("rc4-md5",t)
+	cipher_test("chacha20",t)
+	
 }
 
 func cipher_test(method string, t *testing.T){
