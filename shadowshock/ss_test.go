@@ -6,6 +6,8 @@ import (
 	"testing"
 	"net"
 )
+func Test_meet_ss_ota(t *testing.T){
+}
 func Test_meet_ss(t *testing.T){
 	meet_ss("aes-256-cfb",t)
 	meet_ss("aes-192-cfb",t)
@@ -50,7 +52,7 @@ func meet_ss(method string,t *testing.T){
 			return
 		}
 		defer cc.Close()
-		pip,err:=sh.NewPipe(method,[]byte(pwd),cc)
+		pip,err:=sh.NewReadWriter(method,[]byte(pwd),cc,sh.EncryptIo)
 		if err != nil{
 			cherr <- err
 			return

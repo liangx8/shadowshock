@@ -1,6 +1,7 @@
 package shadowshock_test
 
 import (
+
 	"testing"
 	ss "github.com/liangx8/shadowshock/shadowshock"
 	"io"
@@ -66,60 +67,37 @@ func Test_cipher(t *testing.T){
 
 func cipher_test(method string, t *testing.T){
 	key := []byte("windows")
-
 	src,dst := BiPipe()
-	cherr := make(chan error)
-	done := make(chan int)
-	go func(){done <- 0}()
 	go func(){
-		csrc,err := ss.NewPipe(method,key,src)
+		csrc,err := ss.NewReadWriter(method,key,src,ss.EncryptIo)
 		if err != nil {
-			cherr <- err
-			i := <-done
-			i ++
-			done <- i
-			return
+			panic(err)
 		}
-		tsrc:=[]byte(text)
-		_,err=csrc.Write(tsrc)
-		if err != nil {cherr <- err}
-		i := <-done
-		i ++
-		done <- i
+		_,err=csrc.Write([]byte(text))
+		if err != nil {panic(err)}
+		buf := make([]byte,len(rettext))
+		_,err = csrc.Read(buf)
+		if err != nil {panic(err)}
+		if !isSame(buf,[]byte(rettext)) {
+			panic(method + " cipher return is not same")
+		}
 	}()
 	tdst := make([]byte, len(text))
-	go func(){
-		cdst,err := ss.NewPipe(method,key,dst)
-		if err != nil {
-			cherr <- err
-			i := <-done
-			i ++
-			done <- i
-			return
-		}
-		_,err =cdst.Read(tdst)
-		if err != nil {
-			cherr <- err
-		}
-		i := <-done
-		i ++
-		done <- i
-	}()
-	select {
-	case i:= <-done:
-		if i==2 {
-			if isSame(tdst,[]byte(text)) {
-				return
-			}
-			t.Fatalf("%s cipher not same",method)
-			return
-		}
-		go func() {done <- i}()
-	case err := <-cherr:
-		t.Error(err)
+	cdst,err := ss.NewReadWriter(method,key,dst,ss.EncryptIo)
+	if err != nil {panic(err)}
+	_,err =cdst.Read(tdst)
+	if err != nil {
+		t.Fatal(err)
 	}
+	_,err = cdst.Write([]byte(rettext))
+	if err != nil { t.Fatal(err)}
+	if isSame(tdst,[]byte(text)) {
+		return
+	}
+	t.Fatalf("%s cipher not same",method)
 }
 
 const (
 	text = "This is a long test what include 中文"
+	rettext="It's OK"
 )

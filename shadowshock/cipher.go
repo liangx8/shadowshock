@@ -14,69 +14,109 @@ type (
 		ivLen int
 		enc,dec func([]byte) (cipher.Stream,error)
 	}
-	Pipe struct{
-		r *cipher.StreamReader
-		w *cipher.StreamWriter
-		cip *Cipher
+	filterReader func(buf []byte,r io.Reader) (int,error)
+	filterWriter func(buf []byte,w io.Writer) (int,error)
+	cipherReadWriter struct{
+		baseIo io.ReadWriter
+		read filterReader
+		write filterWriter
 	}
 	UnsupportError string
 )
+func (crw *cipherReadWriter)Read(b []byte)(int,error){
+	return crw.read(b,crw.baseIo)
+}
+func (crw *cipherReadWriter)Write(b []byte)(int,error){
+	return crw.write(b,crw.baseIo)
+}
 func (name UnsupportError) Error() string{
 	return "Unsupport method: " + string(name)
 }
+// encMethod encrypt method
 
-func NewPipe(encMethod string,key []byte,pipe io.ReadWriter) (*Pipe,error){
-	var pip Pipe
-	var err error
+// password Password
+
+// encIo should be object implement io.ReadWriter
+
+// makeio can specified to shadowsock.EncryptIo, shadowsock.ServerEncryptIo, shadowsock.LocalEncryptIo
+func NewReadWriter(encMethod string,
+	password []byte,
+	encIo io.ReadWriter,
+	makeio func(*Cipher)(filterReader,filterWriter)) (io.ReadWriter,error){
+	var retIo cipherReadWriter
 	cinfo,ok := encryptMethod[encMethod]
 	if !ok {
 		return nil,UnsupportError(encMethod)
 	}
-	rawKey := GenKey(key,cinfo.keyLen)
-	pip.cip,err=cinfo.newCipher(cinfo.ivLen,rawKey)
+	rawKey := GenKey(password,cinfo.keyLen)
+
+	cip,err:=cinfo.newCipher(cinfo.ivLen,rawKey)
 	if err != nil {
 		return nil,err
 	}
-	pip.r=&cipher.StreamReader{S:nil,R:pipe}
-	pip.w=&cipher.StreamWriter{S:nil,W:pipe}
-	return &pip,nil
-
+	retIo.read,retIo.write = makeio(cip)
+	retIo.baseIo=encIo
+	return &retIo,nil
 }
-// Init or Apply a IV before use Cipher
-func (p *Pipe)Write(plaintext []byte) (int, error){
-	if p.w.S == nil {
-		var err error
-		iv := make([]byte,p.cip.ivLen)
-		_,err = rand.Read(iv)
-		if err != nil {
-			return 0,err
+func EncryptIo(cip *Cipher)(filterReader,filterWriter){
+	return decReader(cip),encWriter(cip)
+}
+func ServerEncryptIoOta(cip *Cipher)(filterReader,filterWriter){
+	return decReaderOta(cip),encWriter(cip)
+}
+func LocalEncryptIoOta(cip *Cipher)(filterReader,filterWriter){
+	return decReader(cip),encWriterOta(cip)
+}
+func decReader   (cip *Cipher) filterReader{
+	var reader cipher.StreamReader
+	return func(b []byte,r io.Reader)(int,error){
+		if reader.S == nil {
+			iv:=make([]byte,cip.ivLen)
+			_,err := r.Read(iv)
+			if err != nil {
+				return 0,err
+			}
+			reader.S,err = cip.dec(iv)
+			if err != nil {
+				return 0,err
+			}
+			reader.R=r
 		}
-		p.w.S,err=p.cip.enc(iv)
-		if err != nil {
-			return 0,err
-		}
-		_,err=p.w.W.Write(iv)
-		if err != nil {
-			return 0,err
-		}
+		return reader.Read(b)
 	}
-	return p.w.Write(plaintext)
 }
-func (p *Pipe)Read(plaintext []byte) (int,error){
-	var err error
-	if p.r.S == nil {
-
-		iv := make([]byte,p.cip.ivLen)
-		if _,err = p.r.R.Read(iv); err != nil {
-			return 0,err
+func decReaderOta(cip *Cipher) filterReader{
+	panic("not implement")
+}
+func encWriter   (cip *Cipher) filterWriter{
+	var writer cipher.StreamWriter
+	return func(b []byte,w io.Writer)(int,error){
+		if writer.S == nil {
+			iv := make([]byte,cip.ivLen)
+			_,err := rand.Read(iv)
+			if err != nil {
+				return 0,err
+			}
+			_,err=w.Write(iv)
+			if err != nil {
+				return 0,err
+			}
+			writer.S,err = cip.enc(iv)
+			if err != nil {
+				return 0,err
+			}
+			writer.W=w
 		}
-		p.r.S,err=p.cip.dec(iv)
-		if err != nil {
-			return 0,err
-		}
+		return writer.Write(b)
 	}
-	return p.r.Read(plaintext)
 }
+
+func encWriterOta(cip *Cipher) filterWriter{
+	panic("not implement")
+}
+
+//////////////////////////////////////////////////////////////////////////////////////
+
 func GenKey(rawKey []byte,size int) []byte{
 	h := md5.New()
 	const md5len = 16
