@@ -9,26 +9,26 @@ import (
 )
 
 
-func rc4Cipher(ivLen int,key []byte)(*Cipher,error){
+func rc4Cipher(key []byte)(*Cipher,error){
 	var c Cipher
-	c.ivLen=ivLen
-	c.dec=func(iv []byte)(cipher.Stream,error){
+	
+	c.streamMaker=CipherStreamMaker{}
+	c.streamMaker.EncryptStream=func(iv []byte)(cipher.Stream,error){
 		h := md5.New()
 		h.Write(key)
 		h.Write(iv)
 		return rc4.NewCipher(h.Sum(nil))
 	}
-	c.enc=c.dec
+	c.streamMaker.DecryptStream=c.streamMaker.EncryptStream
 	return &c,nil
 }
 
-func chacha20Cipher(ivLen int,key []byte)(*Cipher,error){
+func chacha20Cipher(key []byte)(*Cipher,error){
 	var c Cipher
-	c.ivLen=ivLen
-	c.dec=func(iv []byte)(cipher.Stream,error){
+	c.streamMaker.DecryptStream=func(iv []byte)(cipher.Stream,error){
 		return chacha20.New(key,iv)
 	}
-	c.enc=c.dec
+	c.streamMaker.EncryptStream=c.streamMaker.DecryptStream
 	return &c,nil
 	
 }

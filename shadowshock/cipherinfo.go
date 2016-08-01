@@ -6,9 +6,12 @@ import (
 type (
 	CipherInfo struct{
 		ivLen,keyLen int
-		newCipher func(int,[]byte) (*Cipher,error)
+		newCipher func([]byte) (*Cipher,error)
 	}
+	
+	ErrUnsupportMethod string
 )
+
 
 var encryptMethod = map[string]CipherInfo{
 	AES32:  {aes.BlockSize,32,aesCipher},
@@ -27,3 +30,7 @@ const (
 	RC4MD5 = "rc4-md5"
 	CHACHA = "chacha20"
 )
+
+func (m ErrUnsupportMethod)Error()string{
+	return "Unsupport " + string(m) + "method!"
+}

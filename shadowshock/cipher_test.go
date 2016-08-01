@@ -69,35 +69,53 @@ func cipher_test(method string, t *testing.T){
 	key := []byte("windows")
 	src,dst := BiPipe()
 	go func(){
-		csrc,err := ss.NewReadWriter(method,key,src,ss.EncryptIo)
+		defer dst.Close()
+
+		cdst,rawAddr,err := ss.Service(method,key,dst)
 		if err != nil {
-			panic(err)
+			t.Error(err)
+			return
 		}
-		_,err=csrc.Write([]byte(text))
-		if err != nil {panic(err)}
-		buf := make([]byte,len(rettext))
-		_,err = csrc.Read(buf)
-		if err != nil {panic(err)}
-		if !isSame(buf,[]byte(rettext)) {
-			panic(method + " cipher return is not same")
+		if !isSame(testRawAddr,rawAddr){
+			t.Error("raw address is not expected!")
+			return
+		}
+		_,err=io.Copy(cdst,cdst)
+		if err != nil {
+			t.Error(err)
+			return
 		}
 	}()
-	tdst := make([]byte, len(text))
-	cdst,err := ss.NewReadWriter(method,key,dst,ss.EncryptIo)
-	if err != nil {panic(err)}
-	_,err =cdst.Read(tdst)
+
+	dl,err := ss.NewDial(method,key,src,false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_,err = cdst.Write([]byte(rettext))
+	csrc,err :=dl(testRawAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	go func(){
+
+		_,err =csrc.Write([]byte(text))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+	}()
+	buf:=make([]byte,len(text))
+	_,err = csrc.Read(buf)
 	if err != nil { t.Fatal(err)}
-	if isSame(tdst,[]byte(text)) {
+
+	if isSame(buf,[]byte(text)) {
 		return
 	}
 	t.Fatalf("%s cipher not same",method)
 }
 
 const (
-	text = "This is a long test what include 中文"
-	rettext="It's OK"
+	text        = "This is a long test what include 中文"
+	rettext     = "It's OK"
+	testRawAddr = []byte{ 3,0,0,0 }
 )

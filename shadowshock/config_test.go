@@ -32,11 +32,13 @@ servers:
    method: aes-256-cfb
    password: windows
    ota: no
+   description: server 1
 # this is second comment
  - server_port: "4.3.2.1:5544"
    method: rc4-md5
    password: window
    ota: yes
+   description: server 2
  - server_port: "domain.com:5540"
    password: 123
 `
