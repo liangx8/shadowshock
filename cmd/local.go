@@ -113,6 +113,7 @@ func handleConnection(conn net.Conn){
 	remote,err:=connectToServer(rawAddr)
 	if err != nil {
 		log.Println(err)
+		return
 	}
 	go ss.PipeThenClose(conn,remote)
 	ss.PipeThenClose(remote,conn)
@@ -128,6 +129,7 @@ func connectToServer(rawaddr []byte)(remote *ss.Conn,err error){
 			s.failCnt ++
 			continue
 		}
+		s.failCnt = 0
 		return
 	}
 	return nil,errors.New("Not available server")
