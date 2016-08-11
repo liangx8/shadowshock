@@ -89,10 +89,8 @@ func getRequest(conn net.Conn) (rawAddr []byte, host string, err error){
 	return
 }
 func handleConnection(conn net.Conn){
-	defer func(){
-		debug.Printf("Close %s\n",conn.RemoteAddr().String())
-		conn.Close()
-	}()
+	defer conn.Close()
+
 	debug.Printf("socks connect from %s\n", conn.RemoteAddr().String())
 	if err := handShake(conn); err != nil {
 		debug.Printf("hand shake fail with %v\n",err)
@@ -115,17 +113,34 @@ func handleConnection(conn net.Conn){
 		log.Println(err)
 		return
 	}
+	defer func(){
+		debug.Printf("close connection of %s\n",host)
+		remote.Close()
+	}()
 	go ss.PipeThenClose(conn,remote)
 	ss.PipeThenClose(remote,conn)
 	
 }
 func connectToServer(rawaddr []byte)(remote *ss.Conn,err error){
+	// use available server
 	for _,s := range servers{
 		if s.failCnt > 0 { continue }
-		debug.Printf("tring server %s(%s)\n",s.name,s.server)
+		debug.Printf("using server %s(%s)\n",s.name,s.server)
 		remote,err = ss.DialWithRawAddr(rawaddr,s.server,s.cipher.Copy())
 		if err != nil {
 			log.Println("error connecting to shadowsocks server:",err)
+			s.failCnt ++
+			continue
+		}
+		s.failCnt = 0
+		return
+	}
+	// retry failure server
+	for _,s := range servers{
+		debug.Printf("tring server %s(%s)\n",s.name,s.server)
+		remote,err = ss.DialWithRawAddr(rawaddr,s.server,s.cipher.Copy())
+		if err != nil {
+			log.Println("(tring)error connecting to shadowsocks server:",err)
 			s.failCnt ++
 			continue
 		}
